@@ -395,17 +395,22 @@ export function buildRouteManifestRoutes(options: {
     }
   }
 
-  // Collect filenames of chunks that belong to specific routes so we can
-  // exclude them from the root route's entry-chunk preloads. Without this,
-  // when Rolldown moves route chunks into the entry's static `imports`
-  // (common in large projects), every route chunk leaks into root preloads
-  // and gets modulepreloaded on every page.
+  // Collect filenames of chunks and CSS that belong to specific routes so we
+  // can exclude them from the root route's entry-chunk preloads and assets.
+  // Without this, when Rolldown moves route chunks into the entry's static
+  // `imports` (common in large projects), every route chunk leaks into root
+  // preloads and every route-owned CSS leaks into root assets.
   const routeChunkFileNames = new Set<string>()
   for (const chunks of options.routeChunksByFilePath.values()) {
     for (const chunk of chunks) {
       routeChunkFileNames.add(
         options.assetResolvers.getAssetPath(chunk.fileName),
       )
+      for (const cssFile of chunk.css) {
+        routeChunkFileNames.add(
+          options.assetResolvers.getAssetPath(cssFile),
+        )
+      }
     }
   }
 
@@ -413,7 +418,10 @@ export function buildRouteManifestRoutes(options: {
   mergeRouteChunkData({
     route: rootRoute,
     chunk: options.entryChunk,
-    getChunkCssAssets,
+    getChunkCssAssets: (chunk) => {
+      const assets = getChunkCssAssets(chunk)
+      return assets.filter((a) => !routeChunkFileNames.has(a.attrs.href))
+    },
     getChunkPreloads: (chunk) => {
       const preloads = options.assetResolvers.getChunkPreloads(chunk)
       return preloads.filter((p) => !routeChunkFileNames.has(p))

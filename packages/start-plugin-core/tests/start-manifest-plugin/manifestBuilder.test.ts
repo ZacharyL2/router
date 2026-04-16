@@ -1156,7 +1156,7 @@ describe('multi-chunk routes must merge assets and preloads', () => {
   })
 })
 
-describe('root route should not include route-owned preloads', () => {
+describe('root route should not include route-owned preloads or assets', () => {
   test('entry chunk that statically imports route chunks does not leak them into root preloads', () => {
     const routeChunk = makeChunk({
       fileName: 'about-chunk.js',
@@ -1230,6 +1230,51 @@ describe('root route should not include route-owned preloads', () => {
 
     // Route chunk should be filtered out from root preloads
     expect(rootPreloads).not.toContain('/assets/about-chunk.js')
+  })
+
+  test('route-owned CSS does not leak into root assets', () => {
+    const routeChunk = makeChunk({
+      fileName: 'about-chunk.js',
+      moduleIds: ['/routes/about.tsx?tsr-split=component'],
+      importedCss: ['about.css'],
+    })
+    // Entry chunk statically imports the route chunk (happens in large projects with Rolldown)
+    const entryChunk = makeChunk({
+      fileName: 'entry.js',
+      isEntry: true,
+      imports: ['about-chunk.js'],
+      importedCss: ['entry.css'],
+    })
+
+    const manifest = buildStartManifest({
+      clientBuild: normalizeViteClientBuild({
+        'entry.js': entryChunk,
+        'about-chunk.js': routeChunk,
+      }),
+      routeTreeRoutes: {
+        __root__: { children: ['/about'] } as any,
+        '/about': { filePath: '/routes/about.tsx' },
+      },
+      basePath: '/assets',
+    })
+
+    const rootAssets = manifest.routes['__root__']?.assets ?? []
+    const aboutAssets = manifest.routes['/about']?.assets ?? []
+
+    // Route CSS should be in its own route's assets
+    expect(aboutAssets).toContainEqual(
+      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/about.css' }) }),
+    )
+
+    // Route CSS should NOT leak into root assets
+    expect(rootAssets).not.toContainEqual(
+      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/about.css' }) }),
+    )
+
+    // Entry CSS should still be in root assets
+    expect(rootAssets).toContainEqual(
+      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/entry.css' }) }),
+    )
   })
 })
 
