@@ -1263,17 +1263,23 @@ describe('root route should not include route-owned preloads or assets', () => {
 
     // Route CSS should be in its own route's assets
     expect(aboutAssets).toContainEqual(
-      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/about.css' }) }),
+      expect.objectContaining({
+        attrs: expect.objectContaining({ href: '/assets/about.css' }),
+      }),
     )
 
     // Route CSS should NOT leak into root assets
     expect(rootAssets).not.toContainEqual(
-      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/about.css' }) }),
+      expect.objectContaining({
+        attrs: expect.objectContaining({ href: '/assets/about.css' }),
+      }),
     )
 
     // Entry CSS should still be in root assets
     expect(rootAssets).toContainEqual(
-      expect.objectContaining({ attrs: expect.objectContaining({ href: '/assets/entry.css' }) }),
+      expect.objectContaining({
+        attrs: expect.objectContaining({ href: '/assets/entry.css' }),
+      }),
     )
   })
 })

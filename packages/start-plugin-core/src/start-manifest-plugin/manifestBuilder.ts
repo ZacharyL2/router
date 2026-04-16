@@ -407,9 +407,7 @@ export function buildRouteManifestRoutes(options: {
         options.assetResolvers.getAssetPath(chunk.fileName),
       )
       for (const cssFile of chunk.css) {
-        routeChunkFileNames.add(
-          options.assetResolvers.getAssetPath(cssFile),
-        )
+        routeChunkFileNames.add(options.assetResolvers.getAssetPath(cssFile))
       }
     }
   }
