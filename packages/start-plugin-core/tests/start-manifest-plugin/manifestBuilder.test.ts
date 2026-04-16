@@ -1156,6 +1156,83 @@ describe('multi-chunk routes must merge assets and preloads', () => {
   })
 })
 
+describe('root route should not include route-owned preloads', () => {
+  test('entry chunk that statically imports route chunks does not leak them into root preloads', () => {
+    const routeChunk = makeChunk({
+      fileName: 'about-chunk.js',
+      moduleIds: ['/routes/about.tsx?tsr-split=component'],
+    })
+    // Entry chunk statically imports the route chunk (happens in large projects with Rolldown)
+    const entryChunk = makeChunk({
+      fileName: 'entry.js',
+      isEntry: true,
+      imports: ['about-chunk.js'],
+      importedCss: ['entry.css'],
+    })
+
+    const manifest = buildStartManifest({
+      clientBuild: normalizeViteClientBuild({
+        'entry.js': entryChunk,
+        'about-chunk.js': routeChunk,
+      }),
+      routeTreeRoutes: {
+        __root__: { children: ['/about'] } as any,
+        '/about': { filePath: '/routes/about.tsx' },
+      },
+      basePath: '/assets',
+    })
+
+    const rootPreloads = manifest.routes['__root__']!.preloads!
+    const aboutPreloads = manifest.routes['/about']!.preloads!
+
+    // Route chunk should be in its own route's preloads
+    expect(aboutPreloads).toContain('/assets/about-chunk.js')
+
+    // Route chunk should NOT leak into root preloads
+    expect(rootPreloads).not.toContain('/assets/about-chunk.js')
+
+    // Entry chunk itself should still be in root preloads
+    expect(rootPreloads).toContain('/assets/entry.js')
+  })
+
+  test('shared dependencies not owned by any route remain in root preloads', () => {
+    const sharedChunk = makeChunk({
+      fileName: 'shared-vendor.js',
+    })
+    const routeChunk = makeChunk({
+      fileName: 'about-chunk.js',
+      moduleIds: ['/routes/about.tsx?tsr-split=component'],
+    })
+    const entryChunk = makeChunk({
+      fileName: 'entry.js',
+      isEntry: true,
+      imports: ['shared-vendor.js', 'about-chunk.js'],
+      importedCss: ['entry.css'],
+    })
+
+    const manifest = buildStartManifest({
+      clientBuild: normalizeViteClientBuild({
+        'entry.js': entryChunk,
+        'shared-vendor.js': sharedChunk,
+        'about-chunk.js': routeChunk,
+      }),
+      routeTreeRoutes: {
+        __root__: { children: ['/about'] } as any,
+        '/about': { filePath: '/routes/about.tsx' },
+      },
+      basePath: '/assets',
+    })
+
+    const rootPreloads = manifest.routes['__root__']!.preloads!
+
+    // Shared vendor chunk should remain in root preloads (not owned by any route)
+    expect(rootPreloads).toContain('/assets/shared-vendor.js')
+
+    // Route chunk should be filtered out from root preloads
+    expect(rootPreloads).not.toContain('/assets/about-chunk.js')
+  })
+})
+
 describe('buildStartManifest route pruning', () => {
   test('routes with no assets or preloads are pruned from returned manifest', () => {
     const entryChunk = makeChunk({

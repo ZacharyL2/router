@@ -395,12 +395,29 @@ export function buildRouteManifestRoutes(options: {
     }
   }
 
+  // Collect filenames of chunks that belong to specific routes so we can
+  // exclude them from the root route's entry-chunk preloads. Without this,
+  // when Rolldown moves route chunks into the entry's static `imports`
+  // (common in large projects), every route chunk leaks into root preloads
+  // and gets modulepreloaded on every page.
+  const routeChunkFileNames = new Set<string>()
+  for (const chunks of options.routeChunksByFilePath.values()) {
+    for (const chunk of chunks) {
+      routeChunkFileNames.add(
+        options.assetResolvers.getAssetPath(chunk.fileName),
+      )
+    }
+  }
+
   const rootRoute = (routes[rootRouteId] = routes[rootRouteId] || {})
   mergeRouteChunkData({
     route: rootRoute,
     chunk: options.entryChunk,
     getChunkCssAssets,
-    getChunkPreloads: options.assetResolvers.getChunkPreloads,
+    getChunkPreloads: (chunk) => {
+      const preloads = options.assetResolvers.getChunkPreloads(chunk)
+      return preloads.filter((p) => !routeChunkFileNames.has(p))
+    },
   })
 
   if (options.additionalRouteAssets) {
