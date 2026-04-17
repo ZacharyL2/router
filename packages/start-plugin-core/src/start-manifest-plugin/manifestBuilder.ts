@@ -395,20 +395,9 @@ export function buildRouteManifestRoutes(options: {
     }
   }
 
-  // Collect all preloads already owned by specific routes so we can exclude
-  // them from the root route's entry-chunk preloads. Without this, when
-  // Rolldown moves route chunks into the entry's static `imports` (common in
-  // large projects), every route's transitively-reachable chunk leaks into
-  // root preloads and gets modulepreloaded on every page.
-  //
-  // We collect from the already-built non-root routes' preloads (rather than
-  // `routeChunksByFilePath`) so the filter covers transitively-imported chunks
-  // that Rolldown split out separately but are only reachable via a specific
-  // route (e.g., route-data chunks, shared chunks only used by routes).
-  //
-  // Note: we only filter preloads (which are just browser hints), not CSS
-  // assets — CSS in root may be genuinely needed for SSR-rendered pages even
-  // if it's also transitively reachable from a route.
+  // Exclude chunks already owned by specific routes from root preloads,
+  // so Rolldown's route-chunk hoisting into entry imports doesn't cause
+  // every route to be modulepreloaded on every page.
   const routeOwnedPreloads = new Set<string>()
   for (const [routeId, route] of Object.entries(routes)) {
     if (routeId === rootRouteId) continue

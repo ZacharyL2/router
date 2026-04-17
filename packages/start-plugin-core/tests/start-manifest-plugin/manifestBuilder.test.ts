@@ -1160,23 +1160,24 @@ describe('multi-chunk routes must merge assets and preloads', () => {
 })
 
 describe('root route should not include route-owned preloads', () => {
-  test('entry chunk that statically imports route chunks does not leak them into root preloads', () => {
-    const routeChunk = makeChunk({
-      fileName: 'about-chunk.js',
-      moduleIds: ['/routes/about.tsx?tsr-split=component'],
-    })
-    // Entry chunk statically imports the route chunk (happens in large projects with Rolldown)
-    const entryChunk = makeChunk({
-      fileName: 'entry.js',
-      isEntry: true,
-      imports: ['about-chunk.js'],
-      importedCss: ['entry.css'],
-    })
-
+  test('filters route chunks and their transitive deps, keeps shared vendors', () => {
+    // Simulates Rolldown hoisting route chunks into entry's static imports
+    // in large projects: entry statically imports a shared vendor, a route
+    // chunk, and that route's transitive data chunk.
     const manifest = buildStartManifest({
       clientBuild: normalizeViteClientBuild({
-        'entry.js': entryChunk,
-        'about-chunk.js': routeChunk,
+        'entry.js': makeChunk({
+          fileName: 'entry.js',
+          isEntry: true,
+          imports: ['shared-vendor.js', 'about-chunk.js', 'about-data.js'],
+        }),
+        'shared-vendor.js': makeChunk({ fileName: 'shared-vendor.js' }),
+        'about-chunk.js': makeChunk({
+          fileName: 'about-chunk.js',
+          imports: ['about-data.js'],
+          moduleIds: ['/routes/about.tsx?tsr-split=component'],
+        }),
+        'about-data.js': makeChunk({ fileName: 'about-data.js' }),
       }),
       routeTreeRoutes: {
         __root__: { children: ['/about'] } as any,
@@ -1186,99 +1187,14 @@ describe('root route should not include route-owned preloads', () => {
     })
 
     const rootPreloads = manifest.routes['__root__']!.preloads!
-    const aboutPreloads = manifest.routes['/about']!.preloads!
 
-    // Route chunk should be in its own route's preloads
-    expect(aboutPreloads).toContain('/assets/about-chunk.js')
-
-    // Route chunk should NOT leak into root preloads
-    expect(rootPreloads).not.toContain('/assets/about-chunk.js')
-
-    // Entry chunk itself should still be in root preloads
     expect(rootPreloads).toContain('/assets/entry.js')
-  })
-
-  test('shared dependencies not owned by any route remain in root preloads', () => {
-    const sharedChunk = makeChunk({
-      fileName: 'shared-vendor.js',
-    })
-    const routeChunk = makeChunk({
-      fileName: 'about-chunk.js',
-      moduleIds: ['/routes/about.tsx?tsr-split=component'],
-    })
-    const entryChunk = makeChunk({
-      fileName: 'entry.js',
-      isEntry: true,
-      imports: ['shared-vendor.js', 'about-chunk.js'],
-      importedCss: ['entry.css'],
-    })
-
-    const manifest = buildStartManifest({
-      clientBuild: normalizeViteClientBuild({
-        'entry.js': entryChunk,
-        'shared-vendor.js': sharedChunk,
-        'about-chunk.js': routeChunk,
-      }),
-      routeTreeRoutes: {
-        __root__: { children: ['/about'] } as any,
-        '/about': { filePath: '/routes/about.tsx' },
-      },
-      basePath: '/assets',
-    })
-
-    const rootPreloads = manifest.routes['__root__']!.preloads!
-
-    // Shared vendor chunk should remain in root preloads (not owned by any route)
     expect(rootPreloads).toContain('/assets/shared-vendor.js')
-
-    // Route chunk should be filtered out from root preloads
     expect(rootPreloads).not.toContain('/assets/about-chunk.js')
-  })
-
-  test('transitively-reachable route-owned chunks (e.g. route data chunks) do not leak into root preloads', () => {
-    // In large projects Rolldown often splits route-transitive deps (like
-    // route data modules) into separate chunks. Those chunks end up in entry's
-    // static imports even though they're only reachable via a specific route.
-    const routeDataChunk = makeChunk({
-      fileName: 'about-data.js',
-    })
-    const routeChunk = makeChunk({
-      fileName: 'about-chunk.js',
-      imports: ['about-data.js'],
-      moduleIds: ['/routes/about.tsx?tsr-split=component'],
-    })
-    // Entry statically imports BOTH the route chunk and its data chunk
-    // (simulating Rolldown's chunk hoisting behavior in large projects).
-    const entryChunk = makeChunk({
-      fileName: 'entry.js',
-      isEntry: true,
-      imports: ['about-chunk.js', 'about-data.js'],
-      importedCss: ['entry.css'],
-    })
-
-    const manifest = buildStartManifest({
-      clientBuild: normalizeViteClientBuild({
-        'entry.js': entryChunk,
-        'about-chunk.js': routeChunk,
-        'about-data.js': routeDataChunk,
-      }),
-      routeTreeRoutes: {
-        __root__: { children: ['/about'] } as any,
-        '/about': { filePath: '/routes/about.tsx' },
-      },
-      basePath: '/assets',
-    })
-
-    const rootPreloads = manifest.routes['__root__']!.preloads!
-
-    // The data chunk, though reachable only via /about, shows up in entry's
-    // static imports. It should be filtered out of root preloads because it's
-    // already covered by /about's preloads.
     expect(rootPreloads).not.toContain('/assets/about-data.js')
-    expect(rootPreloads).not.toContain('/assets/about-chunk.js')
-
-    // Entry chunk itself remains
-    expect(rootPreloads).toContain('/assets/entry.js')
+    expect(manifest.routes['/about']!.preloads).toContain(
+      '/assets/about-chunk.js',
+    )
   })
 })
 
