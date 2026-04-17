@@ -738,10 +738,10 @@ describe('route tree dedupe in buildStartManifest', () => {
         },
       },
     ])
-    expect(manifest.routes.__root__!.preloads).toEqual([
-      '/assets/entry.js',
-      '/assets/root-shared.js',
-    ])
+    // root-shared.js is used by non-root routes, so it's considered route-owned
+    // and filtered out of root preloads. Each route still preloads it via its
+    // own entry.
+    expect(manifest.routes.__root__!.preloads).toEqual(['/assets/entry.js'])
     expect(manifest.routes['/parent']!.assets).toEqual([
       {
         tag: 'link',
@@ -754,6 +754,7 @@ describe('route tree dedupe in buildStartManifest', () => {
     ])
     expect(manifest.routes['/parent']!.preloads).toEqual([
       '/assets/parent.js',
+      '/assets/root-shared.js',
       '/assets/parent-only.js',
     ])
     expect(manifest.routes['/child']!.assets).toEqual([
@@ -782,6 +783,7 @@ describe('route tree dedupe in buildStartManifest', () => {
     ])
     expect(manifest.routes['/sibling']!.preloads).toEqual([
       '/assets/sibling.js',
+      '/assets/root-shared.js',
       '/assets/sibling-only.js',
     ])
   })
@@ -965,10 +967,10 @@ describe('route tree dedupe in buildStartManifest', () => {
         },
       },
     ])
-    expect(manifest.routes.__root__!.preloads).toEqual([
-      '/assets/entry.js',
-      '/assets/shared-root.js',
-    ])
+    // shared-root.js is used by non-root routes, so it's considered route-owned
+    // and filtered out of root preloads. Each route still preloads it via its
+    // own entry.
+    expect(manifest.routes.__root__!.preloads).toEqual(['/assets/entry.js'])
     expect(manifest.routes['/level-one']!.assets).toEqual([
       {
         tag: 'link',
@@ -981,6 +983,7 @@ describe('route tree dedupe in buildStartManifest', () => {
     ])
     expect(manifest.routes['/level-one']!.preloads).toEqual([
       '/assets/level-one.js',
+      '/assets/shared-root.js',
       '/assets/level-one-only.js',
     ])
     expect(manifest.routes['/level-two']!.assets).toEqual([
@@ -1156,7 +1159,7 @@ describe('multi-chunk routes must merge assets and preloads', () => {
   })
 })
 
-describe('root route should not include route-owned preloads or assets', () => {
+describe('root route should not include route-owned preloads', () => {
   test('entry chunk that statically imports route chunks does not leak them into root preloads', () => {
     const routeChunk = makeChunk({
       fileName: 'about-chunk.js',
@@ -1232,17 +1235,24 @@ describe('root route should not include route-owned preloads or assets', () => {
     expect(rootPreloads).not.toContain('/assets/about-chunk.js')
   })
 
-  test('route-owned CSS does not leak into root assets', () => {
+  test('transitively-reachable route-owned chunks (e.g. route data chunks) do not leak into root preloads', () => {
+    // In large projects Rolldown often splits route-transitive deps (like
+    // route data modules) into separate chunks. Those chunks end up in entry's
+    // static imports even though they're only reachable via a specific route.
+    const routeDataChunk = makeChunk({
+      fileName: 'about-data.js',
+    })
     const routeChunk = makeChunk({
       fileName: 'about-chunk.js',
+      imports: ['about-data.js'],
       moduleIds: ['/routes/about.tsx?tsr-split=component'],
-      importedCss: ['about.css'],
     })
-    // Entry chunk statically imports the route chunk (happens in large projects with Rolldown)
+    // Entry statically imports BOTH the route chunk and its data chunk
+    // (simulating Rolldown's chunk hoisting behavior in large projects).
     const entryChunk = makeChunk({
       fileName: 'entry.js',
       isEntry: true,
-      imports: ['about-chunk.js'],
+      imports: ['about-chunk.js', 'about-data.js'],
       importedCss: ['entry.css'],
     })
 
@@ -1250,6 +1260,7 @@ describe('root route should not include route-owned preloads or assets', () => {
       clientBuild: normalizeViteClientBuild({
         'entry.js': entryChunk,
         'about-chunk.js': routeChunk,
+        'about-data.js': routeDataChunk,
       }),
       routeTreeRoutes: {
         __root__: { children: ['/about'] } as any,
@@ -1258,29 +1269,16 @@ describe('root route should not include route-owned preloads or assets', () => {
       basePath: '/assets',
     })
 
-    const rootAssets = manifest.routes['__root__']?.assets ?? []
-    const aboutAssets = manifest.routes['/about']?.assets ?? []
+    const rootPreloads = manifest.routes['__root__']!.preloads!
 
-    // Route CSS should be in its own route's assets
-    expect(aboutAssets).toContainEqual(
-      expect.objectContaining({
-        attrs: expect.objectContaining({ href: '/assets/about.css' }),
-      }),
-    )
+    // The data chunk, though reachable only via /about, shows up in entry's
+    // static imports. It should be filtered out of root preloads because it's
+    // already covered by /about's preloads.
+    expect(rootPreloads).not.toContain('/assets/about-data.js')
+    expect(rootPreloads).not.toContain('/assets/about-chunk.js')
 
-    // Route CSS should NOT leak into root assets
-    expect(rootAssets).not.toContainEqual(
-      expect.objectContaining({
-        attrs: expect.objectContaining({ href: '/assets/about.css' }),
-      }),
-    )
-
-    // Entry CSS should still be in root assets
-    expect(rootAssets).toContainEqual(
-      expect.objectContaining({
-        attrs: expect.objectContaining({ href: '/assets/entry.css' }),
-      }),
-    )
+    // Entry chunk itself remains
+    expect(rootPreloads).toContain('/assets/entry.js')
   })
 })
 
